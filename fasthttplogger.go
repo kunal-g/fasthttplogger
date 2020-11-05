@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/valyala/fasthttp"
@@ -153,5 +154,105 @@ func CombinedColored(req fasthttp.RequestHandler) fasthttp.RequestHandler {
 			end.Sub(begin),
 			ctx.UserAgent(),
 		)
+	})
+}
+
+// Combined format:
+// [<time>] <remote-addr> | <HTTP/http-version> | <method> <url> - <status> - <response-time us> | <user-agent>
+// [2017/05/31 - 13:27:28] 127.0.0.1:54082 | HTTP/1.1 | GET /hello - 200 - 48.279µs | Paw/3.1.1 (Macintosh; OS X/10.12.5) GCDHTTPRequest
+func CombinedConditional(req fasthttp.RequestHandler, skipCodes []int) fasthttp.RequestHandler {
+	return fasthttp.RequestHandler(func(ctx *fasthttp.RequestCtx) {
+		begin := time.Now()
+		req(ctx)
+		end := time.Now()
+
+		statusCode := ctx.Response.Header.StatusCode()
+		for _, code := range skipCodes {
+			if statusCode == code {
+				// skip the logging
+				return
+			}
+		}
+
+		buf := &strings.Builder{}
+
+		// 1. timestamp
+		buf.WriteByte('[')
+		buf.WriteString(end.Format("2006/01/02 - 15:04:05"))
+		buf.WriteByte(']')
+
+		// 2. remote addr
+		buf.WriteString(" | ")
+		buf.WriteString(ctx.RemoteAddr().String())
+
+		// 3. http version
+		buf.WriteString(" | ")
+		buf.WriteString(getHttp(ctx))
+
+		// 4. colorised http method + request uri + colored status + duration
+		buf.WriteString(" | ")
+		buf.Write(ctx.Method())
+		buf.WriteByte(' ')
+		buf.Write(ctx.RequestURI()) // RequestURI() returns []byte
+		buf.WriteString(" - ")
+		buf.WriteString(strconv.Itoa(ctx.Response.Header.StatusCode()))
+		buf.WriteString(" - ")
+		buf.WriteString(end.Sub(begin).String())
+
+		// 5. User-agent
+		buf.WriteString(" | ")
+		buf.Write(ctx.UserAgent()) // UserAgent() returns []byte
+
+		output.Writer().Write([]byte(buf.String()))
+		output.Writer().Write([]byte("\n"))
+	})
+}
+
+// CombinedColoredConditional - same as CombinedColored, but skips logging for given http status codes.
+func CombinedColoredConditional(req fasthttp.RequestHandler, skipCodes []int) fasthttp.RequestHandler {
+	return fasthttp.RequestHandler(func(ctx *fasthttp.RequestCtx) {
+		begin := time.Now()
+		req(ctx)
+		end := time.Now()
+
+		statusCode := ctx.Response.Header.StatusCode()
+		for _, code := range skipCodes {
+			if statusCode == code {
+				// skip the logging
+				return
+			}
+		}
+
+		buf := &strings.Builder{}
+
+		// 1. timestamp
+		buf.WriteByte('[')
+		buf.WriteString(end.Format("2006/01/02 - 15:04:05"))
+		buf.WriteByte(']')
+
+		// 2. remote addr
+		buf.WriteString(" | ")
+		buf.WriteString(ctx.RemoteAddr().String())
+
+		// 3. http version
+		buf.WriteString(" | ")
+		buf.WriteString(getHttp(ctx))
+
+		// 4. colorised http method + request uri + colored status + duration
+		buf.WriteString(" | ")
+		buf.WriteString(colorMethod(ctx.Method(), ctx.Response.Header.StatusCode()))
+		buf.WriteByte(' ')
+		buf.Write(ctx.RequestURI()) // RequestURI() returns []byte
+		buf.WriteString(" - ")
+		buf.WriteString(colorStatus(ctx.Response.Header.StatusCode()))
+		buf.WriteString(" - ")
+		buf.WriteString(end.Sub(begin).String())
+
+		// 5. User-agent
+		buf.WriteString(" | ")
+		buf.Write(ctx.UserAgent()) // UserAgent() returns []byte
+
+		output.Writer().Write([]byte(buf.String()))
+		output.Writer().Write([]byte("\n"))
 	})
 }
